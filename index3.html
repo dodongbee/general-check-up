@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>check-in</title>
+
+<style>
+  body{
+    margin:0;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    background:linear-gradient(180deg,#fdfbfb,#ebedee);
+    font-family:-apple-system,BlinkMacSystemFont,system-ui;
+    color:#222;
+    padding:18px;
+  }
+  .card{
+    width:100%;
+    max-width:420px;
+    padding:22px;
+    border-radius:20px;
+    background:white;
+    border:1px solid #e6e6e6;
+    box-shadow:0 20px 40px rgba(0,0,0,.08);
+  }
+  h1{ margin:0 0 10px; font-size:22px; }
+  p{ color:#555; font-size:14px; margin:0; line-height:1.35; }
+
+  .buttons{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:16px;
+  }
+  button{
+    flex:1;
+    padding:12px;
+    border-radius:14px;
+    border:1px solid #ddd;
+    background:#f7f7f7;
+    font-size:14px;
+    cursor:pointer;
+  }
+  .yes{ background:#e6f6ef; }
+  .no{ background:#fde8ec; }
+  .neutral{ background:#f2f2f2; }
+
+  .back{
+    background:none;
+    border:none;
+    color:#777;
+    font-size:13px;
+    margin-top:12px;
+    cursor:pointer;
+    padding:6px 0;
+  }
+  .hidden{ display:none; }
+
+  input[type=range], textarea{
+    width:100%;
+    margin-top:12px;
+    padding:10px;
+    border-radius:12px;
+    border:1px solid #ddd;
+    background:#fafafa;
+    font-size:14px;
+    outline:none;
+  }
+  textarea{ resize:none; min-height:90px; }
+
+  .heavyNum{
+    font-size:32px;
+    font-weight:700;
+    text-align:center;
+    margin-top:12px;
+    color:#333;
+  }
+  .scale{
+    display:flex;
+    justify-content:space-between;
+    font-size:12px;
+    color:#777;
+    margin-top:6px;
+  }
+
+  /* summary image only shows on END */
+  #imgWrap img{
+    width:100%;
+    border-radius:16px;
+    margin-top:14px;
+    display:block;
+  }
+  .small{
+    font-size:12px;
+    color:#777;
+    margin-top:10px;
+  }
+
+  #imageCard{
+    background:white;
+    padding:24px;
+    border-radius:20px;
+    border:1px solid #ddd;
+    width:380px;
+    color:#222;
+  }
+</style>
+</head>
+
+<body>
+
+<div class="card" id="app">
+  <h1 id="title"></h1>
+  <p id="desc"></p>
+
+  <div class="buttons" id="buttons"></div>
+  <div id="extra"></div>
+
+  <button class="back hidden" id="backBtn">← back</button>
+
+  <div id="imgWrap"></div>
+</div>
+
+<!-- Hidden: used only to generate PNG -->
+<div id="imageCard" class="hidden">
+  <h2 style="margin:0 0 10px;">💬 check-in summary</h2>
+  <p id="imgUpset" style="margin:0 0 6px;"></p>
+  <p id="imgWhen" style="margin:0 0 6px;"></p>
+  <p id="imgAbout" style="margin:0 0 6px;"></p>
+  <p id="imgOthers" style="margin:0 0 6px;"></p>
+  <p id="imgHeavy" style="margin:0 0 6px;"></p>
+  <p id="imgLambing" style="margin:0;"></p>
+  <p style="color:#777;margin-top:16px;margin-bottom:0;">please send this to your baby 🤍</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+<script>
+  const title = document.getElementById("title");
+  const desc = document.getElementById("desc");
+  const buttons = document.getElementById("buttons");
+  const extra = document.getElementById("extra");
+  const backBtn = document.getElementById("backBtn");
+  const imgWrap = document.getElementById("imgWrap");
+
+  // ✅ Proper navigation: store PREVIOUS steps, not "next steps"
+  let history = [];
+  let currentStep = null;
+
+  const state = {
+    upset: null,      // "yes" | "no"
+    when: null,       // later/tonight/tomorrow/day after tomorrow
+    about: null,      // us/family/friends/others
+    othersText: "",   // free text when about=others
+    heavy: 5,         // 1..10
+    lambing: null     // pure lambing | with asaran | null
+  };
+
+  function resetDetails(){
+    state.when = null;
+    state.about = null;
+    state.othersText = "";
+    state.heavy = 5;
+    state.lambing = null;
+  }
+
+  function clearUI(){
+    buttons.innerHTML = "";
+    extra.innerHTML = "";
+  }
+
+  function hideSummary(){
+    // ✅ this fixes the “constant summary at the bottom”
+    imgWrap.innerHTML = "";
+  }
+
+  function updateBackVisibility(){
+    if (history.length > 0) backBtn.classList.remove("hidden");
+    else backBtn.classList.add("hidden");
+  }
+
+  function navigate(nextStepFn){
+    // push the current step so back works correctly
+    if (currentStep) history.push(currentStep);
+    currentStep = nextStepFn;
+    updateBackVisibility();
+    hideSummary(); // ✅ hide summary whenever leaving END / moving steps
+    nextStepFn();
+  }
+
+  function goBack(){
+    const prev = history.pop();
+    currentStep = prev || currentStep;
+    updateBackVisibility();
+    hideSummary(); // ✅ remove END summary when going back
+    if (prev) prev();
+  }
+
+  backBtn.onclick = goBack;
+
+  function addBtn(text, cls, onClick){
+    const b = document.createElement("button");
+    b.textContent = text;
+    b.className = cls;
+    b.onclick = onClick;
+    buttons.appendChild(b);
+  }
+
+  // ---------------- FLOW STEPS ----------------
+
+  function q1(){
+    title.textContent = "are you upset?";
+    desc.textContent = "quick check-in.";
+    clearUI();
+
+    addBtn("yes", "yes", () => {
+      state.upset = "yes";
+      resetDetails();
+      navigate(q2);
+    });
+
+    addBtn("no", "no", () => {
+      state.upset = "no";
+      resetDetails(); // ensures only upset:no shows
+      navigate(end);  // go to END (with PNG)
+    });
+  }
+
+  function q2(){
+    title.textContent = "wanna talk about it now?";
+    desc.textContent = "";
+    clearUI();
+
+    addBtn("yes", "yes", () => navigate(qLambing));
+    addBtn("no", "no", () => navigate(q3));
+  }
+
+  function qLambing(){
+    title.textContent = "want lambing after talking?";
+    desc.textContent = "";
+    clearUI();
+
+    addBtn("pure lambing", "yes", () => {
+      state.lambing = "pure lambing";
+      navigate(end);
+    });
+
+    addBtn("w/ asaran", "yes", () => {
+      state.lambing = "with asaran";
+      navigate(end);
+    });
+
+    addBtn("no", "no", () => {
+      state.lambing = null;
+      navigate(end);
+    });
+  }
+
+  function q3(){
+    title.textContent = "when?";
+    desc.textContent = "";
+    clearUI();
+
+    ["later","tonight","tomorrow","day after tomorrow"].forEach(t => {
+      addBtn(t, "neutral", () => {
+        state.when = t;
+        navigate(q4);
+      });
+    });
+  }
+
+  function q4(){
+    title.textContent = "what is it about?";
+    desc.textContent = "";
+    clearUI();
+
+    addBtn("us", "neutral", () => { state.about = "us"; state.othersText=""; navigate(q5); });
+    addBtn("family", "neutral", () => { state.about = "family"; state.othersText=""; navigate(q5); });
+    addBtn("friends", "neutral", () => { state.about = "friends"; state.othersText=""; navigate(q5); });
+    addBtn("others", "neutral", () => { state.about = "others"; navigate(q4_others); });
+  }
+
+  function q4_others(){
+    title.textContent = "others — what’s bothering you?";
+    desc.textContent = "";
+    clearUI();
+
+    const ta = document.createElement("textarea");
+    ta.placeholder = "type anything here…";
+    ta.value = state.othersText || "";
+    ta.oninput = () => state.othersText = ta.value;
+    extra.appendChild(ta);
+
+    addBtn("continue", "yes", () => navigate(q5));
+  }
+
+  function q5(){
+    title.textContent = "how heavy is it?";
+    desc.textContent = "rate how heavy it feels right now.";
+    clearUI();
+
+    const num = document.createElement("div");
+    num.className = "heavyNum";
+    num.textContent = state.heavy;
+
+    const r = document.createElement("input");
+    r.type = "range";
+    r.min = 1; r.max = 10; r.step = 1;
+    r.value = state.heavy;
+
+    const scale = document.createElement("div");
+    scale.className = "scale";
+    scale.innerHTML = "<span>1 (light)</span><span>10 (really heavy)</span>";
+
+    r.oninput = () => {
+      state.heavy = Number(r.value);
+      num.textContent = r.value;
+    };
+
+    extra.appendChild(num);
+    extra.appendChild(r);
+    extra.appendChild(scale);
+
+    addBtn("finish", "yes", () => navigate(end));
+  }
+
+  // ---------------- END (PNG ALWAYS) ----------------
+
+  function end(){
+    title.textContent = "end.";
+    desc.textContent = "summary generated below.";
+    clearUI();
+
+    // Back should be available if history exists
+    updateBackVisibility();
+
+    generateImage();
+  }
+
+  function generateImage(){
+    // Always show upset status
+    document.getElementById("imgUpset").textContent = `upset: ${state.upset}`;
+
+    if (state.upset === "no") {
+      document.getElementById("imgWhen").textContent = "";
+      document.getElementById("imgAbout").textContent = "";
+      document.getElementById("imgOthers").textContent = "";
+      document.getElementById("imgHeavy").textContent = "";
+      document.getElementById("imgLambing").textContent = "";
+    } else {
+      document.getElementById("imgWhen").textContent = state.when ? `when: ${state.when}` : "";
+      document.getElementById("imgAbout").textContent = state.about ? `about: ${state.about}` : "";
+      document.getElementById("imgOthers").textContent =
+        (state.about === "others" && state.othersText.trim()) ? `details: ${state.othersText.trim()}` : "";
+      document.getElementById("imgHeavy").textContent =
+        (state.when !== null) ? `how heavy: ${state.heavy}/10` : "";
+      document.getElementById("imgLambing").textContent = state.lambing ? `lambing: ${state.lambing}` : "";
+    }
+
+    const card = document.getElementById("imageCard");
+    card.classList.remove("hidden");
+
+    html2canvas(card, { scale: 2 }).then(canvas => {
+      imgWrap.innerHTML = "";
+
+      const img = document.createElement("img");
+      img.src = canvas.toDataURL("image/png");
+      imgWrap.appendChild(img);
+
+      card.classList.add("hidden");
+    }).catch(() => {
+      imgWrap.innerHTML = "<p class='small'>couldn't generate image. try again.</p>";
+      card.classList.add("hidden");
+    });
+  }
+
+  // start the app
+  function start(){
+    history = [];
+    currentStep = q1;
+    updateBackVisibility();
+    hideSummary();
+    q1();
+  }
+
+  start();
+</script>
+</body>
+</html>
